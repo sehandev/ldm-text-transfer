@@ -74,13 +74,13 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--image_column", type=str, default="image", help="The column of the dataset containing an image."
+        "--title_column", type=str, default="review_title", help="The column of the dataset containing an image."
     )
     parser.add_argument(
-        "--caption_column",
+        "--body_column",
         type=str,
-        default="text",
-        help="The column of the dataset containing a caption or a list of captions.",
+        default="review_body",
+        help="The column of the dataset containing a body or a list of bodys.",
     )
     parser.add_argument(
         "--max_train_samples",
@@ -240,7 +240,7 @@ def get_full_repo_name(model_id: str, organization: Optional[str] = None, token:
 
 
 dataset_name_mapping = {
-    "lambdalabs/pokemon-blip-captions": ("image", "text"),
+    "amazon_reviews_multi": ("review_body", "review_title"),
 }
 
 
@@ -438,38 +438,54 @@ def main():
 
     # 6. Get the column names for input/target.
     dataset_columns = dataset_name_mapping.get(args.dataset_name, None)
-    if args.image_column is None:
-        image_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
+    if args.title_column is None:
+        title_column = dataset_columns[0] if dataset_columns is not None else column_names[0]
     else:
-        image_column = args.image_column
-        if image_column not in column_names:
+        title_column = args.title_column
+        if title_column not in column_names:
             raise ValueError(
-                f"--image_column' value '{args.image_column}' needs to be one of: {', '.join(column_names)}"
+                f"--title_column' value '{args.title_column}' needs to be one of: {', '.join(column_names)}"
             )
-    if args.caption_column is None:
-        caption_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
+    if args.body_column is None:
+        body_column = dataset_columns[1] if dataset_columns is not None else column_names[1]
     else:
-        caption_column = args.caption_column
-        if caption_column not in column_names:
+        body_column = args.body_column
+        if body_column not in column_names:
             raise ValueError(
-                f"--caption_column' value '{args.caption_column}' needs to be one of: {', '.join(column_names)}"
+                f"--body_column' value '{args.body_column}' needs to be one of: {', '.join(column_names)}"
             )
 
     # Preprocessing the datasets.
-    # We need to tokenize input captions and transform the images.
-    def tokenize_captions(examples, is_train=True):
-        captions = []
-        for caption in examples[caption_column]:
-            if isinstance(caption, str):
-                captions.append(caption)
-            elif isinstance(caption, (list, np.ndarray)):
-                # take a random caption if there are multiple
-                captions.append(random.choice(caption) if is_train else caption[0])
+    # We need to tokenize input bodys and transform the images.
+    def tokenize_bodies(examples, is_train=True):
+        bodies = []
+        for body in examples[body_column]:
+            if isinstance(body, str):
+                bodies.append(body)
+            elif isinstance(body, (list, np.ndarray)):
+                # take a random body if there are multiple
+                bodies.append(random.choice(body) if is_train else body[0])
             else:
                 raise ValueError(
-                    f"Caption column `{caption_column}` should contain either strings or lists of strings."
+                    f"body column `{body_column}` should contain either strings or lists of strings."
                 )
-        inputs = tokenizer(captions, max_length=tokenizer.model_max_length, padding="do_not_pad", truncation=True)
+        inputs = tokenizer(bodies, max_length=tokenizer.model_max_length, padding="do_not_pad", truncation=True)
+        input_ids = inputs.input_ids
+        return input_ids
+
+    def tokenize_titles(examples, is_train=True):
+        titles = []
+        for title in examples[title_column]:
+            if isinstance(title, str):
+                titles.append(title)
+            elif isinstance(title, (list, np.ndarray)):
+                # take a random title if there are multiple
+                titles.append(random.choice(title) if is_train else title[0])
+            else:
+                raise ValueError(
+                    f"title column `{title_column}` should contain either strings or lists of strings."
+                )
+        inputs = tokenizer(titles, max_length=tokenizer.model_max_length, padding="do_not_pad", truncation=True)
         input_ids = inputs.input_ids
         return input_ids
 
@@ -484,9 +500,10 @@ def main():
     )
 
     def preprocess_train(examples):
-        images = [image.convert("RGB") for image in examples[image_column]]
-        examples["pixel_values"] = [train_transforms(image) for image in images]
-        examples["input_ids"] = tokenize_captions(examples)
+        # images = [image for image in examples[image_column]]
+        # examples["pixel_values"] = [train_transforms(image) for image in images]
+        examples["title_ids"] = tokenize_titles(examples)
+        examples["input_ids"] = tokenize_bodies(examples)
 
         return examples
 
@@ -497,12 +514,13 @@ def main():
         train_dataset = dataset["train"].with_transform(preprocess_train)
 
     def collate_fn(examples):
-        pixel_values = torch.stack([example["pixel_values"] for example in examples])
-        pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
+        # pixel_values = torch.stack([example["pixel_values"] for example in examples])
+        # pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
+        title_ids = [example["title_ids"] for example in examples]
         input_ids = [example["input_ids"] for example in examples]
         padded_tokens = tokenizer.pad({"input_ids": input_ids}, padding=True, return_tensors="pt")
         return {
-            "pixel_values": pixel_values,
+            "title_ids": title_ids,
             "input_ids": padded_tokens.input_ids,
             "attention_mask": padded_tokens.attention_mask,
         }
@@ -579,7 +597,7 @@ def main():
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(unet):
                 # Convert images to latent space
-                latents = vae.encode(batch["pixel_values"].to(weight_dtype)).latent_dist.sample()
+                latents = vae.encode(batch["title_ids"].to(weight_dtype)).latent_dist.sample()
                 latents = latents * 0.18215
 
                 # Sample noise that we'll add to the latents
