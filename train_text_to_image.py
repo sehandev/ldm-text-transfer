@@ -609,11 +609,14 @@ def main():
         # pixel_values = pixel_values.to(memory_format=torch.contiguous_format).float()
         title_ids = [example["title_ids"] for example in examples]
         input_ids = [example["input_ids"] for example in examples]
+        title_padded_tokens = tokenizer.pad(
+            {"input_ids": title_ids}, padding=True, return_tensors="pt"
+        )
         padded_tokens = tokenizer.pad(
             {"input_ids": input_ids}, padding=True, return_tensors="pt"
         )
         return {
-            "title_ids": title_ids,
+            "title_ids": title_padded_tokens.input_ids,
             "input_ids": padded_tokens.input_ids,
             "attention_mask": padded_tokens.attention_mask,
         }
