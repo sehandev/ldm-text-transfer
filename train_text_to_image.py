@@ -707,10 +707,18 @@ def main():
         train_loss = 0.0
         for step, batch in enumerate(train_dataloader):
             with accelerator.accumulate(unet):
-                # Convert images to latent space
-                latents = vae.encode(
-                    batch["title_ids"].to(weight_dtype)
-                ).latent_dist.sample()
+                # Convert title text to latent space
+                tmp = text_encoder(
+                    batch["title_ids"], output_hidden_states=True
+                ).hidden_states
+                # tmp: [13, (batch_size, seq_len, 768)]
+                tmp = torch.stack(tensors=(tmp[0], tmp[1], tmp[-1]), dim=1)
+                # tmp: (batch_size, 3, seq_len, 768)
+                (_, _, seq_len, embed_size) = tmp.shape
+                tmp = tmp.repeat(1, 1, embed_size // seq_len + 1, 1)[:, :, :embed_size]
+                # tmp: (batch_size, 3, 512, 512)
+                latents = vae.encode(tmp).latent_dist.sample()
+                # latents: (batch_size, 64, 64)
                 latents = latents * 0.18215
 
                 # Sample noise that we'll add to the latents
