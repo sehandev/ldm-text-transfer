@@ -4,6 +4,10 @@
 
 It goes without saying that the title of any article is important to attract people's attention. Currently, there are various title generators, but they are all extracted based on keywords. Input text, create a title, and measure accuracy based on how similar it is to the actual title. However, this method can only extract formal titles, and it is not enough to make creative and eye-catching titles. So we wanted to create a Title Generator that would create a more creative title.
 
+## Model architecture
+
+<img src="./model.svg">
+
 ## Get started
 
 1. Create docker container with docker-compose
